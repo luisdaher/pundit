@@ -35,10 +35,13 @@ module Pundit
 
   class << self
     def authorize(user, record, query)
-      policy = policy!(user, record)
+      @_pundit_policy_authorized = true
+
+      query ||= params[:action].to_s + '?'
+      policy = policy(user, record)
 
       unless policy.public_send(query)
-        raise NotAuthorizedError.new(query: query, record: record, policy: policy)
+        raise generate_error_for(policy, query, record)
       end
 
       true
@@ -60,6 +63,33 @@ module Pundit
 
     def policy!(user, record)
       PolicyFinder.new(record).policy!.new(user, record)
+    end
+
+    protected
+
+    def generate_error_for(policy, query, record)
+      if policy.respond_to? :error_message
+        message = policy.error_message
+        policy.error_message = nil
+      end
+
+      message ||= translate_error_message_for_query(query, policy)
+
+      error_hash = {
+        policy:  policy,
+        query:   query,
+        record:  record
+      }
+
+      error_hash[:message] = message if message
+
+      Pundit::NotAuthorizedError.new error_hash
+    end
+
+    def translate_error_message_for_query(query, policy)
+      t("#{policy.class.to_s.underscore}.#{query}",
+        scope: 'pundit',
+        default: :default) if self.respond_to?(:t)
     end
   end
 
